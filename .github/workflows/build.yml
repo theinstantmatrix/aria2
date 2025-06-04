@@ -1,102 +1,66 @@
-name: build
+name: Build aria2
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
+    runs-on: ${{matrix.os}}
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-14]
-        compiler: [gcc, clang]
-        crypto: [openssl, gnutls]
-        bittorrent: [with-bt, without-bt]
-        exclude:
-        - os: macos-14
-          crypto: gnutls
-        - crypto: openssl
-          bittorrent: without-bt
-
-    runs-on: ${{ matrix.os }}
-
+        include:
+          - os: windows-11-arm
+            ARTIFACT_PREFIX: winarm64
+            MSYS2_SYS: CLANGARM64
+          - os: windows-latest
+            ARTIFACT_PREFIX: win64
+            MSYS2_SYS: MINGW64
     steps:
-    - uses: actions/checkout@v4
-    - name: Linux setup
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install \
-          g++-12 \
-          clang-15 \
-          autoconf \
-          automake \
-          autotools-dev \
-          autopoint \
-          libtool \
-          pkg-config \
-          libssl-dev \
-          libgnutls28-dev \
-          libc-ares-dev \
-          zlib1g-dev \
-          libsqlite3-dev \
-          libssh2-1-dev \
-          libcppunit-dev
-    - name: MacOS setup
-      if: runner.os == 'macOS'
-      run: |
-        brew install cppunit gettext openssl libssh2 c-ares sqlite3 \
-          autoconf automake pkg-config libtool
-    - name: Setup clang (Linux)
-      if: runner.os == 'Linux' && matrix.compiler == 'clang'
-      run: |
-        echo 'CC=clang-15' >> $GITHUB_ENV
-        echo 'CXX=clang++-15' >> $GITHUB_ENV
-    - name: Setup clang (MacOS)
-      if: runner.os == 'macOS' && matrix.compiler == 'clang'
-      run: |
-        echo 'CC=clang' >> $GITHUB_ENV
-        echo 'CXX=clang++' >> $GITHUB_ENV
-    - name: Setup gcc (Linux)
-      if: runner.os == 'Linux' && matrix.compiler == 'gcc'
-      run: |
-        echo 'CC=gcc-12' >> $GITHUB_ENV
-        echo 'CXX=g++-12' >> $GITHUB_ENV
-    - name: Setup gcc (MacOS)
-      if: runner.os == 'macOS' && matrix.compiler == 'gcc'
-      run: |
-        echo 'CC=gcc' >> $GITHUB_ENV
-        echo 'CXX=g++' >> $GITHUB_ENV
-    - name: Libtool
-      run: |
-        autoreconf -i
-    - name: Setup compiler flags
-      run: |
-        asanflags="-fsanitize=address,undefined -fno-sanitize-recover=undefined"
-
-        CPPFLAGS="$asanflags -g3"
-        LDFLAGS="$asanflags"
-
-        echo 'CPPFLAGS='"$CPPFLAGS" >> $GITHUB_ENV
-        echo 'LDFLAGS='"$LDFLAGS" >> $GITHUB_ENV
-    - name: Disable BitTorrent
-      if: matrix.bittorrent == 'without-bt'
-      run: |
-        FEATURE_FLAGS="$FEATURE_FLAGS --disable-bittorrent"
-
-        echo 'FEATURE_FLAGS='"$FEATURE_FLAGS" >> $GITHUB_ENV
-    - name: Configure autotools (Linux, gnutls)
-      if: runner.os == 'Linux' && matrix.crypto == 'gnutls'
-      run: |
-        ./configure --with-gnutls --without-openssl $FEATURE_FLAGS
-    - name: Configure autotools (Linux, openssl)
-      if: runner.os == 'Linux' && matrix.crypto == 'openssl'
-      run: |
-        ./configure --without-gnutls --with-openssl $FEATURE_FLAGS
-    - name: Configure autotools (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        ./configure \
-          --without-openssl --without-gnutls --with-appletls \
-          --disable-nls
-    - name: Build aria2
-      run: |
-        make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" check
+      - name: 'Configure git: core.autocrlf, core.eol'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{matrix.MSYS2_SYS}}
+          update: true
+          pacboy: >-
+            autotools:p
+            c-ares:p
+            clang:a
+            cppunit:p
+            gcc:x
+            gmp:p
+            gnutls:p
+            libgcrypt:p
+            libgpg-error:p
+            libssh2:p
+            libtool:p
+            libxml2:p
+            nettle:p
+            pkgconf:p
+            sqlite3:p
+            zlib:p
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          autoreconf -i
+          ARIA2_STATIC=yes ./configure
+          make -j4
+      - name: Copy files
+        shell: msys2 {0}
+        run: |
+          mkdir upload
+          cp src/aria2c.exe upload
+          strip upload/aria2c.exe
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria2-git-${{matrix.ARTIFACT_PREFIX}}-${{github.sha}}
+          path: upload
+          if-no-files-found: error
