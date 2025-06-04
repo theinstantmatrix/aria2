@@ -1,0 +1,96 @@
+name: Build aria2 (Windows ARM64/AArch64 + x86-64)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: >-
+            mingw-w64-clang-aarch64-autotools
+            mingw-w64-clang-aarch64-c-ares
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-cppunit
+            mingw-w64-clang-aarch64-gmp
+            mingw-w64-clang-aarch64-gnutls
+            mingw-w64-clang-aarch64-libgcrypt
+            mingw-w64-clang-aarch64-libgpg-error
+            mingw-w64-clang-aarch64-libssh2
+            mingw-w64-clang-aarch64-libtool
+            mingw-w64-clang-aarch64-libxml2
+            mingw-w64-clang-aarch64-nettle
+            mingw-w64-clang-aarch64-pkgconf
+            mingw-w64-clang-aarch64-sqlite3
+            mingw-w64-clang-aarch64-zlib
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          autoreconf -i
+          ARIA2_STATIC=yes ./configure
+          make -j4
+          mkdir upload
+          cp src/aria2c.exe upload
+          strip upload/aria2c.exe
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria2-git-winarm64-${{github.sha}}
+          path: upload
+          if-no-files-found: error
+  build-x86-64:
+    runs-on: windows-latest
+    steps:
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-autotools
+            mingw-w64-x86_64-c-ares
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cppunit
+            mingw-w64-x86_64-gmp
+            mingw-w64-x86_64-gnutls
+            mingw-w64-x86_64-libgcrypt
+            mingw-w64-x86_64-libgpg-error
+            mingw-w64-x86_64-libssh2
+            mingw-w64-x86_64-libtool
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-nettle
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-zlib
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          autoreconf -i
+          ARIA2_STATIC=yes ./configure
+          make -j4
+          mkdir upload
+          cp src/aria2c.exe upload
+          strip upload/aria2c.exe
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria2-git-win64-${{github.sha}}
+          path: upload
+          if-no-files-found: error
